@@ -6,6 +6,9 @@ from orthogonal_ray_shooting import create_interval_tree, ray_shooting, get_vert
 from shapely.geometry import LineString, box, Point, MultiPoint
 import orthogonal_dcel
 
+# Pickle or JSON?
+is_pkl = False
+
 # Dimensions of the large bounding box
 box_width = 100
 box_length = 100
@@ -136,8 +139,23 @@ def convert_to_PSLG(rectangles) -> nx.Graph:
 
     return G
 
-output_dir = "Histogram_Polyhedra_Instances"
+def generate_random_point_in_dcel(dcel: orthogonal_dcel.DCEL, edges, tree):
+    x = random.randint(0,box_width)
+    y = random.randint(0,box_height)
+    point = (x,y)
+    face = dcel.face_with_point(point, edges = edges, tree = tree, is_ray_horizontal = True)
+    height = face.height
+    z = random.randint(0,height)
+    point = [x,y,z]
+    return point
+
+if is_pkl:
+    output_dir = "Histogram_Polyhedra_Instances_pkl"
+else:
+    output_dir = "Histogram_Polyhedra_Instances_json"
+
 num_instances = 999
+num_s_t_pairs = 9
 
 for i in range(1, num_instances + 1):
     num_rectangles = random.randint(1,max_number_of_rectangles)
@@ -155,11 +173,22 @@ for i in range(1, num_instances + 1):
 
     print(i, dcel)
 
+    vertical_edges, _ = get_vertical_and_horizontal_edges(G)
+    tree = create_interval_tree(edges=vertical_edges, is_vertical_tree=True)
+
     for face in dcel.faces:
         face.height = random.randint(min_height,max_height)
         if face.is_external:
             face.height = 0
-
-    filename = os.path.join(output_dir, f"instance_{i:03}.pkl")
     
-    dcel.save_to_pickle(filename) #we use pickle to save it as a binary file
+    for j in range(1, num_s_t_pairs+1):
+        s = generate_random_point_in_dcel(dcel = dcel, edges=vertical_edges, tree=tree)
+        t = generate_random_point_in_dcel(dcel = dcel, edges=vertical_edges, tree=tree)
+        dcel.s = s
+        dcel.t = t
+        if is_pkl:
+            filename = os.path.join(output_dir, f"instance_{i:03}_{j:03}.pkl")
+            dcel.save_to_pickle(filename) #we use pickle to save it as a binary file
+        else:
+            filename = os.path.join(output_dir, f"instance_{i:03}_{j:03}.json")
+            dcel.save_to_json(filename) #we use json to save it as a readable file

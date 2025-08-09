@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import pickle
 from orthogonal_ray_shooting import ray_shooting
+import json
+from itertools import combinations
 
 class Vertex: #the Vertex class contains 3 attributes: .x, .y, .incident_half_edges
     def __init__(self, x, y):
@@ -146,6 +148,8 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
         self.vertices: list[Vertex] = []
         self.half_edges: list[HalfEdge] = []
         self.faces: list[Face] = []
+        self.s: List[int] = []
+        self.t: List[int] = []
 
     def __repr__(self):
         return f"DCEL(vertices={self.vertices};\n\n edges={self.half_edges};\n\n faces={self.faces})"
@@ -431,7 +435,7 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
             ax.set_ylim([y_center - max_range/2, y_center + max_range/2])
             ax.set_zlim([0, max(all_z) if all_z else 1])
 
-    def face_with_point(self, point, edges, tree, is_ray_horizontal) -> Face:
+    def face_with_point(self, point, edges, tree, is_ray_horizontal) -> Face: #return the face in the DCEL that the point is in 
         if is_ray_horizontal:
             is_left = True
             is_down = False
@@ -439,9 +443,8 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
             is_left = False
             is_down = True
             
-
-        _, bisected_edge_index = ray_shooting(point = point, tree = tree, is_left = is_left, is_down = is_down, is_ray_horizontal = is_ray_horizontal)
-        bisected_edge = edges[bisected_edge_index]
+        _, bisected_edge_index = ray_shooting(point = point, tree = tree, is_left = is_left, is_down = is_down, is_ray_horizontal = is_ray_horizontal) #shoot a ray to the left or down
+        bisected_edge = edges[bisected_edge_index] #compute the edge that is bisected edge
 
         v1 = Vertex(bisected_edge[0][0],bisected_edge[0][1])
         v2 = Vertex(bisected_edge[1][0],bisected_edge[1][1])
@@ -454,7 +457,7 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
             he.origin = v2
             he.destination = v1
         
-        for he2 in self.half_edges:
+        for he2 in self.half_edges: #find the half edge which is equal to he and return the face
             if he2 == he:
                 return he2.face
 
@@ -462,27 +465,12 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
         self._build_dcel_vertices_and_half_edges_from_graph(G) # Step 1: Build DCEL structure from graph
         cycles = self._find_all_cycles() # Step 2: Find all cycles in the DCEL
 
-        # for cycle in cycles:
-        #     for edge in cycle: 
-        #         print(edge)
-        #     print("Is it an inner cycle: ",self._is_inner_cycle(cycle),"\nBottom edge: ",self._left_bottom_edge(cycle),"\n")
-
         vertical_edges, _ = get_vertical_and_horizontal_edges(G)
         
         self._construct_faces_from_cycles(cycles, vertical_edges) # Step 3: Determine face structure from cycles
         
         return self
 
-    def save_to_pickle(self, filename): #Save DCEL to pickle file
-        with open(filename, 'wb') as f:
-            pickle.dump(self, f)
-
-    @classmethod
-    def load_from_pickle(cls, filename) -> 'DCEL': #Load DCEL from pickle file
-        with open(filename, 'rb') as f:
-            dcel = pickle.load(f)
-        return dcel
-    
     def convert_to_graph(self): #Convert DCEL to networkx graph 
         G = nx.Graph()
 
@@ -495,6 +483,119 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
             G.add_edge(v1, v2, is_vertical = (v1[0] == v2[0]))
         
         return G
+
+    def get_graph_for_GCS(self, edges, tree): #given the decomposed DCEL, This returns the GCS graph
+        unprocessed = set(self.half_edges)
+        H = nx.Graph()
+        
+        def he_to_edge(he: HalfEdge): #Convert half-edge to ordered edge (left to right)
+            p1 = he.origin.coords
+            p2 = he.destination.coords
+
+            if p1[0] < p2[0] or (p1[0] == p2[0] and p1[1] < p2[1]): # Order from left to right (smaller x first, then smaller y if x equal)
+                return (p1, p2)
+            else:
+                return (p2, p1)
+        
+        def connect_point_to_face_edges(point_vertex, edges, tree) -> Face: #Connect a point vertex to all edges bounding the given face
+            point = (point_vertex[0],point_vertex[1])
+
+            face = self.face_with_point(point = point, edges= edges, tree = tree, is_ray_horizontal=True) #compute the face which has the point
+            if face:
+                face_edges = list(face.outer_edges())
+                for he in face_edges: #add an edge between the point and every edge bounding the face
+                    edge_vertex = he_to_edge(he)
+                    H.add_edge(point_vertex, edge_vertex)
+            return face
+        
+        while unprocessed: # Vertices of H are the edges of the graph (not half edges)
+            he = unprocessed.pop() #remove the half edge and its twin
+            unprocessed.discard(he.twin)
+            
+            min_height = min(he.face.height, he.twin.face.height) #the intersection between the two faces will be the rectangle whose height is the minimum of the heights of the faces that are in either side of this edge 
+            diagonals = (he.origin.coords + (0,), he.destination.coords + (min_height,))
+            
+            edge_vertex = he_to_edge(he) # Use ordered edge as vertex name
+            H.add_node(edge_vertex, diagonals=diagonals) #the "diagonals" field will hold the diagonal vertices
+        
+        for face in self.faces: # Add edges based on faces -- a face induces a clique; we only use the outer faces since the final decomposition has no inner components
+            face_half_edges = list(face.outer_edges())
+            
+            for he1, he2 in combinations(face_half_edges, 2):
+                edge1 = he_to_edge(he1)
+                edge2 = he_to_edge(he2)
+                H.add_edge(edge1, edge2)
+        
+        H.add_node(tuple(self.s), is_source=True)
+        H.add_node(tuple(self.t), is_destination=True)
+
+        face_s = connect_point_to_face_edges(tuple(self.s), edges, tree) #this is the face that s is in
+        face_t = connect_point_to_face_edges(tuple(self.t), edges, tree) #this is the face that t is in
+
+        if face_s == face_t: #if they are in the same face, then add an edge between them
+            H.add_edge(tuple(self.s), tuple(self.t))
+        return H
+
+    def save_to_pickle(self, filename): #Save DCEL to pickle file
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load_from_pickle(cls, filename) -> 'DCEL': #Load DCEL from pickle file
+        with open(filename, 'rb') as f:
+            dcel = pickle.load(f)
+        return dcel
+
+    def save_to_json(self, filename, G = None):
+        if G == None:
+            G = self.convert_to_graph()
+
+        half_edge_height_dict = {}
+
+        for he in self.half_edges:
+            he_coords = (he.origin.coords, he.destination.coords)
+            half_edge_height_dict[he_coords] = he.face.height
+
+        graph_data = nx.node_link_data(G)
+        graph_data['half_edge_height_dict'] = {json.dumps(edge): value for edge, value in half_edge_height_dict.items()}
+        graph_data['source_and_destination'] = {'source': self.s, 'destination': self.t}
+
+        with open(filename, 'w') as f:
+            json.dump(graph_data, f, indent=2)
+    
+    @classmethod
+    def load_from_json(cls, filename) -> 'DCEL': #load 
+
+        with open(filename, 'r') as f:
+            data = json.load(f)
+
+        half_edge_height_dict = {}
+        for k, v in data.pop('half_edge_height_dict').items():
+            edge_list = json.loads(k)
+            half_edge_height_dict[(tuple(edge_list[0]), tuple(edge_list[1]))] = v
+
+        s = data['source_and_destination']['source']
+        t = data['source_and_destination']['destination']
+
+        G = nx.node_link_graph(data)
+
+        dcel = DCEL()
+        dcel.compute_faces_from_graph(G)
+
+        for face in dcel.faces:
+            if face.is_external:
+                face.height = 0
+            
+            else:
+                he = face.start_half_edge
+                he_coords = (he.origin.coords, he.destination.coords)
+                height = half_edge_height_dict[he_coords]
+                face.height = height
+
+        dcel.s = s
+        dcel.t = t
+
+        return dcel
 
     def plot_histogram_polyhedron(self, alpha=0.15, show_wireframe=True, face_colors=None):
         """
@@ -542,6 +643,9 @@ class DCEL: #The DCEL class has .vertices, .half_edges, and .faces as its attrib
             poly_collection = Poly3DCollection(all_faces, alpha=alpha, facecolors=colors, edgecolors='black' if show_wireframe else None)
             ax.add_collection3d(poly_collection)
         
+        ax.scatter(self.s[0], self.s[1], self.s[2], color='blue', s=20, marker='s')
+        ax.scatter(self.t[0], self.t[1], self.t[2], color='darkgreen', s=20, marker='s')
+
         self._set_axis_properties_3d(ax) # Set axis properties
         
         # Add labels and title

@@ -32,7 +32,8 @@ Creates geometric instances suitable for orthogonal decomposition algorithms by:
 2. Converting overlapping rectangles into a Planar Straight Line Graph (PSLG)
 3. Building a DCEL representation with face information
 4. Assigning random heights to create 3D histogram polyhedra
-5. Saving instances as pickled files for later use to ``Histogram_Polyhedra_Instances``  
+5. Generating a random pair of points inside the polyhedron
+6. Saving instances as pickled files for later use to ``Histogram_Polyhedra_Instances``  
 
 ## Decompose Histogram Polyhedra (`decompose_histogram_polyhedra.py`)
 
@@ -171,6 +172,7 @@ Main class managing the complete planar subdivision.
 - `vertices`: List of all vertices
 - `half_edges`: List of all half-edges
 - `faces`: List of all faces
+- `s` and `t`: Points between which we need to compute the shortest path
 
 ## DCEL Construction Methods
 
@@ -220,7 +222,19 @@ Creates 3D visualization of histogram polyhedron from face heights.
 ### File I/O Methods
 - `save_to_pickle(filename)`: Serialize DCEL to binary file
 - `load_from_pickle(filename)`: Class method to deserialize DCEL
+- `save_to_json(filename)`: Serialize DCEL to JSON
+- `load_from_json(filename)`: Class method to deserialize DCEL
 - `convert_to_graph()`: Export DCEL back to NetworkX format
+
+### `get_graph_for_GCS(self, edges, tree)`
+
+Given the decomposed DCEL, this returns the GCS graph that can be used for shortest path computation.
+
+**Node Attributes**
+
+- Edge nodes: Include `diagonals` attribute containing the diagonal vertices of the intersection rectangle
+- Source node: Marked with `is_source=True`
+- Destination node: Marked with `is_destination=True`
 
 ## Internal Algorithms
 
