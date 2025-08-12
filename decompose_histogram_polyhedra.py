@@ -16,7 +16,7 @@ box_height = 100
 
 ## Step 1: Read instance
 
-is_pkl = True
+is_pkl = False
 
 if is_pkl:
     folder = "Histogram_Polyhedra_Instances_pkl"
