@@ -20,13 +20,13 @@ box_height = 100
 
 ## Step 1: Read instance
 
-is_pkl = True
+is_pkl = False
 
 if is_pkl:
-    folder = "Histogram_Polyhedra_Instances_pkl"
+    folder = "../Histogram_Polyhedra_Instances_pkl"
 
 else:
-    folder = "Histogram_Polyhedra_Instances_json"
+    folder = "../Histogram_Polyhedra_Instances_json"
 
 all_files = [f for f in os.listdir(folder)]
 chosen_file = random.choice(all_files)  # Choose this if you want a random instance

@@ -114,7 +114,7 @@ class Face:  # the Face class has three attributes: .start_half_edge, .inner_com
 
     def _vertices_in_cycle(
         self, start_half_edge
-    ):  # yields the vertices around the cycle starting at the given edge
+    )-> Iterator[Vertex]:  # yields the vertices around the cycle starting at the given edge
         if not start_half_edge:
             return
 
@@ -128,7 +128,7 @@ class Face:  # the Face class has three attributes: .start_half_edge, .inner_com
 
     def _edges_in_cycle(
         self, start_half_edge
-    ):  # yields the edges around the cycle starting at the given edge
+    )-> Iterator[HalfEdge]:  # yields the edges around the cycle starting at the given edge
         if not start_half_edge:
             return
 
@@ -726,9 +726,14 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
             H.add_edge(tuple(self.s), tuple(self.t))
         return H
 
-    def save_to_pickle(self, filename):  # Save DCEL to pickle file
-        with open(filename, "wb") as f:
-            pickle.dump(self, f)
+    def save_to_pickle(self, filename) -> bool:  # Save DCEL to pickle file
+        try:
+            with open(filename, "wb") as f:
+                pickle.dump(self, f)
+            return True
+        except RecursionError:
+            return False
+            
 
     @classmethod
     def load_from_pickle(cls, filename) -> "DCEL":  # Load DCEL from pickle file

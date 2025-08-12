@@ -31,7 +31,7 @@ from orthogonal_ray_shooting import (
     ray_shooting,
     get_vertical_and_horizontal_edges,
 )
-from shapely.geometry import LineString, box, Point, MultiPoint
+from shapely.geometry import LineString, box, Point, MultiPoint, Polygon
 import orthogonal_dcel
 
 logger = logging.getLogger(__name__)
@@ -77,9 +77,7 @@ def setup_logger(level: str = "INFO") -> None:
 
 
 
-
-
-def generate_random_rectangle(args):
+def generate_random_rectangle(args) -> Polygon:
     """Create a random axis-aligned rectangle inside the bounding box.
 
     Returns a Shapely `Polygon` (via `box`) whose coordinates are integers
@@ -265,7 +263,6 @@ def generate_random_point_in_dcel(dcel: orthogonal_dcel.DCEL, edges, tree, args)
 
 def parse_args(argv=None):
     # Default parameters (used only for argparse defaults; not mutated)
-    is_pkl = False  # default output format when using CLI flags
 
     # Dimensions of the large bounding box (defaults)
     box_width = 100
@@ -286,7 +283,7 @@ def parse_args(argv=None):
 
     # Output format and destination
     fmt = parser.add_mutually_exclusive_group()
-    fmt.add_argument("--pkl", action="store_true", help="Write instances as .pkl (default: JSON)")
+    fmt.add_argument("--pkl", dest = "pkl_out",action="store_true", help="Write instances as .pkl (default: .json)")
     fmt.add_argument("--json", dest="json_out", action="store_true", help="Write instances as .json (default)")
     parser.add_argument("--output-dir", default=None, help="Output directory (default depends on format)")
 
@@ -328,10 +325,10 @@ def main(argv=None):
         logger.info("Using random seed: %s", args.seed)
 
     # Derive format and output directory (avoid global mutation)
-    use_pkl = bool(args.pkl) and not args.json_out
+    use_pkl = bool(args.pkl_out) and not args.json_out
     output_dir = args.output_dir
     if output_dir is None:
-        output_dir = "Histogram_Polyhedra_Instances_pkl" if use_pkl else "Histogram_Polyhedra_Instances_json"
+        output_dir = "../Histogram_Polyhedra_Instances_pkl" if use_pkl else "../Histogram_Polyhedra_Instances_json"
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Output directory: %s", output_dir)
 
@@ -377,7 +374,9 @@ def main(argv=None):
             dcel.t = t
             if use_pkl:
                 filename = os.path.join(output_dir, f"instance_{i:03}_{j:03}.pkl")
-                dcel.save_to_pickle(filename)
+                success = dcel.save_to_pickle(filename)
+                if not success:
+                    logger.error("Pickling error %s", filename)
             else:
                 filename = os.path.join(output_dir, f"instance_{i:03}_{j:03}.json")
                 dcel.save_to_json(filename)
