@@ -114,7 +114,9 @@ class Face:  # the Face class has three attributes: .start_half_edge, .inner_com
 
     def _vertices_in_cycle(
         self, start_half_edge
-    )-> Iterator[Vertex]:  # yields the vertices around the cycle starting at the given edge
+    ) -> Iterator[
+        Vertex
+    ]:  # yields the vertices around the cycle starting at the given edge
         if not start_half_edge:
             return
 
@@ -128,7 +130,9 @@ class Face:  # the Face class has three attributes: .start_half_edge, .inner_com
 
     def _edges_in_cycle(
         self, start_half_edge
-    )-> Iterator[HalfEdge]:  # yields the edges around the cycle starting at the given edge
+    ) -> Iterator[
+        HalfEdge
+    ]:  # yields the edges around the cycle starting at the given edge
         if not start_half_edge:
             return
 
@@ -733,13 +737,15 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
             return True
         except RecursionError:
             return False
-            
 
     @classmethod
     def load_from_pickle(cls, filename) -> "DCEL":  # Load DCEL from pickle file
-        with open(filename, "rb") as f:
-            dcel = pickle.load(f)
-        return dcel
+        try:
+            with open(filename, "rb") as f:
+                dcel = pickle.load(f)
+            return dcel
+        except FileNotFoundError:
+            return FileNotFoundError
 
     def save_to_json(self, filename, G=None):
         if G is None:
@@ -762,36 +768,40 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
 
     @classmethod
     def load_from_json(cls, filename) -> "DCEL":  # load
-        with open(filename, "r") as f:
-            data = json.load(f)
+        try:
+            with open(filename, "r") as f:
+                data = json.load(f)
 
-        half_edge_height_dict = {}
-        for k, v in data.pop("half_edge_height_dict").items():
-            edge_list = json.loads(k)
-            half_edge_height_dict[(tuple(edge_list[0]), tuple(edge_list[1]))] = v
+            half_edge_height_dict = {}
+            for k, v in data.pop("half_edge_height_dict").items():
+                edge_list = json.loads(k)
+                half_edge_height_dict[(tuple(edge_list[0]), tuple(edge_list[1]))] = v
 
-        s = data["source_and_destination"]["source"]
-        t = data["source_and_destination"]["destination"]
+            s = data["source_and_destination"]["source"]
+            t = data["source_and_destination"]["destination"]
 
-        G = nx.node_link_graph(data)
+            G = nx.node_link_graph(data)
 
-        dcel = DCEL()
-        dcel.compute_faces_from_graph(G)
+            dcel = DCEL()
+            dcel.compute_faces_from_graph(G)
 
-        for face in dcel.faces:
-            if face.is_external:
-                face.height = 0
+            for face in dcel.faces:
+                if face.is_external:
+                    face.height = 0
 
-            else:
-                he = face.start_half_edge
-                he_coords = (he.origin.coords, he.destination.coords)
-                height = half_edge_height_dict[he_coords]
-                face.height = height
+                else:
+                    he = face.start_half_edge
+                    he_coords = (he.origin.coords, he.destination.coords)
+                    height = half_edge_height_dict[he_coords]
+                    face.height = height
 
-        dcel.s = s
-        dcel.t = t
+            dcel.s = s
+            dcel.t = t
 
-        return dcel
+            return dcel
+
+        except FileNotFoundError:
+            return FileNotFoundError
 
     def plot_histogram_polyhedron(
         self, alpha=0.15, show_wireframe=True, face_colors=None

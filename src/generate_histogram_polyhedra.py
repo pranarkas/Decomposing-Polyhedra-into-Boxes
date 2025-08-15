@@ -24,8 +24,8 @@ from shapely.geometry import box
 import os
 import networkx as nx
 import argparse
+from format_logger import setup_logger
 import logging
-import sys
 from orthogonal_ray_shooting import (
     create_interval_tree,
     ray_shooting,
@@ -35,46 +35,6 @@ from shapely.geometry import LineString, box, Point, MultiPoint, Polygon
 import orthogonal_dcel
 
 logger = logging.getLogger(__name__)
-
-
-class ColorFormatter(logging.Formatter):
-    """Colorful log formatter using ANSI escape sequences."""
-
-    RESET = "\x1b[0m"
-    BOLD = "\x1b[1m"
-
-    COLORS = {
-        logging.DEBUG: "\x1b[34m",   # Blue
-        logging.INFO: "\x1b[32m",    # Green
-        logging.WARNING: "\x1b[33m", # Yellow
-        logging.ERROR: "\x1b[31m",   # Red
-        logging.CRITICAL: "\x1b[35m",# Magenta
-    }
-
-    def format(self, record: logging.LogRecord) -> str:
-        level_color = self.COLORS.get(record.levelno, "")
-        prefix = f"{self.BOLD}{level_color}{record.levelname:8}{self.RESET}"
-        fmt = f"%(asctime)s {prefix} %(message)s"
-        formatter = logging.Formatter(fmt=fmt, datefmt="%H:%M:%S")
-        return formatter.format(record)
-
-
-def setup_logger(level: str = "INFO") -> None:
-    """Configure root logger with colored output to stdout."""
-    root = logging.getLogger()
-    if root.handlers:
-        for h in root.handlers:
-            h.setFormatter(ColorFormatter())
-            h.setLevel(level.upper())
-        root.setLevel(level.upper())
-        return
-
-    handler = logging.StreamHandler(stream=sys.stdout)
-    handler.setFormatter(ColorFormatter())
-    handler.setLevel(level.upper())
-    root.addHandler(handler)
-    root.setLevel(level.upper())
-
 
 
 def generate_random_rectangle(args) -> Polygon:
@@ -279,35 +239,117 @@ def parse_args(argv=None):
     max_length = box_length // 2
     min_height = 1
     max_height = box_height
-    parser = argparse.ArgumentParser(description="Generate histogram polyhedra instances.")
+    parser = argparse.ArgumentParser(
+        description="Generate histogram polyhedra instances."
+    )
 
     # Output format and destination
     fmt = parser.add_mutually_exclusive_group()
-    fmt.add_argument("--pkl", dest = "pkl_out",action="store_true", help="Write instances as .pkl (default: .json)")
-    fmt.add_argument("--json", dest="json_out", action="store_true", help="Write instances as .json (default)")
-    parser.add_argument("--output-dir", default=None, help="Output directory (default depends on format)")
+    fmt.add_argument(
+        "--pkl",
+        dest="pkl_out",
+        action="store_true",
+        help="Write instances as .pkl (default: .json)",
+    )
+    fmt.add_argument(
+        "--json",
+        dest="json_out",
+        action="store_true",
+        help="Write instances as .json (default)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory (default depends on format)",
+    )
 
     # Dimensions
-    parser.add_argument("--box-width", type=int, default=box_width, help=f"Bounding box width (default: {box_width})")
-    parser.add_argument("--box-length", type=int, default=box_length, help=f"Bounding box length (default: {box_length})")
-    parser.add_argument("--box-height", type=int, default=box_height, help=f"Bounding box height (default: {box_height})")
+    parser.add_argument(
+        "--box-width",
+        type=int,
+        default=box_width,
+        help=f"Bounding box width (default: {box_width})",
+    )
+    parser.add_argument(
+        "--box-length",
+        type=int,
+        default=box_length,
+        help=f"Bounding box length (default: {box_length})",
+    )
+    parser.add_argument(
+        "--box-height",
+        type=int,
+        default=box_height,
+        help=f"Bounding box height (default: {box_height})",
+    )
 
     # Rectangles
-    parser.add_argument("--max-rectangles", type=int, default=max_number_of_rectangles, help=f"Max rectangles per instance (default: {max_number_of_rectangles})")
-    parser.add_argument("--min-width", type=int, default=min_width, help=f"Min rectangle width (default: {min_width})")
-    parser.add_argument("--max-width", type=int, default=max_width, help=f"Max rectangle width (default: {box_width//2})")
-    parser.add_argument("--min-length", type=int, default=min_length, help=f"Min rectangle length (default: {min_length})")
-    parser.add_argument("--max-length", type=int, default=max_length, help=f"Max rectangle length (default: {box_length//2})")
-    parser.add_argument("--min-height", type=int, default=min_height, help=f"Min face height (default: {min_height})")
-    parser.add_argument("--max-height", type=int, default=max_height, help=f"Max face height (default: {int(max_height)})")
+    parser.add_argument(
+        "--max-rectangles",
+        type=int,
+        default=max_number_of_rectangles,
+        help=f"Max rectangles per instance (default: {max_number_of_rectangles})",
+    )
+    parser.add_argument(
+        "--min-width",
+        type=int,
+        default=min_width,
+        help=f"Min rectangle width (default: {min_width})",
+    )
+    parser.add_argument(
+        "--max-width",
+        type=int,
+        default=max_width,
+        help=f"Max rectangle width (default: {box_width // 2})",
+    )
+    parser.add_argument(
+        "--min-length",
+        type=int,
+        default=min_length,
+        help=f"Min rectangle length (default: {min_length})",
+    )
+    parser.add_argument(
+        "--max-length",
+        type=int,
+        default=max_length,
+        help=f"Max rectangle length (default: {box_length // 2})",
+    )
+    parser.add_argument(
+        "--min-height",
+        type=int,
+        default=min_height,
+        help=f"Min face height (default: {min_height})",
+    )
+    parser.add_argument(
+        "--max-height",
+        type=int,
+        default=max_height,
+        help=f"Max face height (default: {int(max_height)})",
+    )
 
     # Generation counts
-    parser.add_argument("--num-instances", type=int, default=999, help="Number of instances to generate (default: 999)")
-    parser.add_argument("--num-s-t-pairs", type=int, default=9, help="Number of s/t pairs per instance (default: 9)")
+    parser.add_argument(
+        "--num-instances",
+        type=int,
+        default=999,
+        help="Number of instances to generate (default: 999)",
+    )
+    parser.add_argument(
+        "--num-s-t-pairs",
+        type=int,
+        default=9,
+        help="Number of s/t pairs per instance (default: 9)",
+    )
 
     # Misc
-    parser.add_argument("--seed", type=int, default=None, help="Random seed (default: None)")
-    parser.add_argument("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed (default: None)"
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
 
     args = parser.parse_args(argv)
     return args
@@ -328,7 +370,11 @@ def main(argv=None):
     use_pkl = bool(args.pkl_out) and not args.json_out
     output_dir = args.output_dir
     if output_dir is None:
-        output_dir = "../Histogram_Polyhedra_Instances_pkl" if use_pkl else "../Histogram_Polyhedra_Instances_json"
+        output_dir = (
+            "../Histogram_Polyhedra_Instances_pkl"
+            if use_pkl
+            else "../Histogram_Polyhedra_Instances_json"
+        )
     os.makedirs(output_dir, exist_ok=True)
     logger.info("Output directory: %s", output_dir)
 
@@ -368,8 +414,12 @@ def main(argv=None):
 
         # 5) Sample s/t point pairs and serialize instances.
         for j in range(1, args.num_s_t_pairs + 1):
-            s = generate_random_point_in_dcel(dcel=dcel, edges=vertical_edges, tree=tree, args=args)
-            t = generate_random_point_in_dcel(dcel=dcel, edges=vertical_edges, tree=tree, args=args)
+            s = generate_random_point_in_dcel(
+                dcel=dcel, edges=vertical_edges, tree=tree, args=args
+            )
+            t = generate_random_point_in_dcel(
+                dcel=dcel, edges=vertical_edges, tree=tree, args=args
+            )
             dcel.s = s
             dcel.t = t
             if use_pkl:

@@ -11,57 +11,17 @@ from orthogonal_ray_shooting import (
 )
 import orthogonal_dcel
 from enum import Enum
+import logging
+from format_logger import setup_logger
+import argparse
 
-# Part 1: Read a file in Histogram_Polyhedra_Instances; this is an orthogonal DCEL; we convert it to a networkX graph
-
-### Dimensions of the large bounding box -- this is for drawing outer box for decomposition. NOTE: CHANGE ON BOTH PROGRAMS IF NEEDED
-box_width = 100
-box_height = 100
-
-## Step 1: Read instance
-
-is_pkl = False
-
-if is_pkl:
-    folder = "../Histogram_Polyhedra_Instances_pkl"
-
-else:
-    folder = "../Histogram_Polyhedra_Instances_json"
-
-all_files = [f for f in os.listdir(folder)]
-chosen_file = random.choice(all_files)  # Choose this if you want a random instance
-# chosen_file = "instance_196_003.json" #nice pickle instances: 985, 074, 672, 253, 146 (one rectangle), 444, 839, 896, 856 ; nice json instances: 417_005, 981, 895, 919, 320, 539, 028, 588
-
-print(chosen_file)
-
-# if file does not exit quit error message
-
-filename = os.path.join(folder, chosen_file)
-
-if is_pkl:
-    dcel = (orthogonal_dcel.DCEL).load_from_pickle(filename=filename)
-
-else:
-    dcel = (orthogonal_dcel.DCEL).load_from_json(filename=filename)
-
-half_edge_height_dict = {}  # this holds the heights of the edges for the decomposition
-
-for he in dcel.half_edges:  # add the half edges of the dcel to the dictionary along with the heights of their corresponding face
-    he_coords = (he.origin.coords, he.destination.coords)
-    half_edge_height_dict[he_coords] = he.face.height
-
-print("\n\nInput DCEL")
-
-for face in dcel.faces:
-    print(f"{face} height: {face.height}")
-    # print(face, "height: ", face.height)
-
-G = nx.Graph()
-G = dcel.convert_to_graph()
+# Setup logging
+setup_logger(level="INFO")
+logger = logging.getLogger(__name__)
 
 
-##Step 2: Plot the input PSLG and 3D instance
 def is_left_reflex(
+    G,
     v,
 ):  # this checks if a vertex v is left-reflex -- this is true only when it has degree 2 and one neighbor is to the right
     flag = False
@@ -73,6 +33,7 @@ def is_left_reflex(
 
 
 def is_right_reflex(
+    G,
     v,
 ):  # this checks if a vertex is right-reflex -- this is true only when it has degree 2 and one neighbor is to the left
     flag = False
@@ -84,6 +45,7 @@ def is_right_reflex(
 
 
 def is_bottom_reflex(
+    G,
     v,
 ):  # this checks if a vertex is bottom-reflex -- this is true only when it has degree 2 and one neighbor is to the top
     flag = False
@@ -95,6 +57,7 @@ def is_bottom_reflex(
 
 
 def is_top_reflex(
+    G,
     v,
 ):  # this checks if a vertex is top-reflex -- this is true only when it has degree 2 and one neighbor is to the bottom
     flag = False
@@ -105,11 +68,18 @@ def is_top_reflex(
     return flag
 
 
-Color = Enum("ReflexVertexType", [("LEFT", 1), ("RIGHT", 2), ("TOP", 3), ("BOTTOM", 4)])
+def get_reflexivity_data(G):
+    return [
+        (
+            (v[0], v[1]),
+            is_left_reflex(G, v),
+            is_right_reflex(G, v),
+            is_bottom_reflex(G, v),
+            is_top_reflex(G, v),
+        )
+        for v in G.nodes()
+    ]
 
-
-def get_reflex_vertex_type(v):
-    pass
 
 def draw_graph(
     left_bottom_reflex,
@@ -117,7 +87,6 @@ def draw_graph(
     left_top_reflex,
     right_top_reflex,
     G,
-    fig,
     ax,
 ):
     pos = nx.get_node_attributes(G, "pos")  # Extract positions from node attributes
@@ -146,47 +115,6 @@ def draw_graph(
         spine.set_visible(False)
 
 
-vertical_edges_for_dcel, horizontal_edges_for_dcel = get_vertical_and_horizontal_edges(
-    G
-)  # compute the vertical and horizontal edges
-vertical_edges_tree_for_dcel = create_interval_tree(
-    vertical_edges_for_dcel, is_vertical_tree=1
-)  # create the trees for vertical and horizontal edges. Note that for the "simple" decomposition, we only need the vertical tree. We need both for the optimal decomposition.
-horizontal_edges_tree_for_dcel = create_interval_tree(
-    horizontal_edges_for_dcel, is_vertical_tree=0
-)
-
-dcel.plot_histogram_polyhedron()  # plot the  3D instance
-
-vertices_with_reflexivity_data = [
-    (
-        (v[0], v[1]),
-        is_left_reflex(v),
-        is_right_reflex(v),
-        is_bottom_reflex(v),
-        is_top_reflex(v),
-    )
-    for v in G.nodes()
-]  # collect the vertices along with reflexivity data for plotting in different colors
-left_bottom_reflex = [v[0] for v in vertices_with_reflexivity_data if (v[1] and v[3])]
-right_bottom_reflex = [v[0] for v in vertices_with_reflexivity_data if (v[2] and v[3])]
-left_top_reflex = [v[0] for v in vertices_with_reflexivity_data if (v[1] and v[4])]
-right_top_reflex = [v[0] for v in vertices_with_reflexivity_data if (v[2] and v[4])]
-
-fig, ax = plt.subplots()  # Plot the input PSLG
-draw_graph(
-    left_bottom_reflex,
-    right_bottom_reflex,
-    left_top_reflex,
-    right_top_reflex,
-    G,
-    fig,
-    ax,
-)
-
-# Part 2: Compute the decomposition
-
-
 ##Step 1: Compute and add a maximum independent set of good edges to G
 def compute_good_edges(
     vertices_with_reflexivity_data,
@@ -194,6 +122,8 @@ def compute_good_edges(
     horizontal_edges,
     vertical_edges_tree,
     horizontal_edges_tree,
+    box_width,
+    box_length,
 ):  # this computes the good edges -- i.e., horizontal or vertical chords of the PSLG between its reflex vertices
     good_edges = []
     for vertex_with_reflexivity_data in vertices_with_reflexivity_data:
@@ -246,7 +176,7 @@ def compute_good_edges(
                 ):
                     good_edges.append((v, intersection_point))
         elif is_top:  # if it is a top-reflex vertex, shoot a ray to the above; if the ray hits another vertex, then this is a good edge
-            if v[1] < box_height:
+            if v[1] < box_length:
                 intersection_point, bisected_edge_index = ray_shooting(
                     point=v,
                     tree=horizontal_edges_tree,
@@ -312,7 +242,13 @@ def find_max_IS_of_good_edges(
 
 
 def add_new_edge_to_half_edge_dictionary(
-    edge, height_1=None, height_2=None
+    edge,
+    dcel,
+    vertical_edges_for_dcel,
+    vertical_edges_tree_for_dcel,
+    half_edge_height_dict,
+    height_1=None,
+    height_2=None,
 ):  # given an undirected edge uv, add u->v with height_1 and v->u with height2 to the dictionary if they are given; otherwise, compute the height by a point in dcel face query
     v1 = (edge[0][0], edge[0][1])
     v2 = (edge[1][0], edge[1][1])
@@ -334,59 +270,8 @@ def add_new_edge_to_half_edge_dictionary(
     half_edge_height_dict[(v2, v1)] = height_2
 
 
-want_optimal = True  # select True if you want the optimal decomposition; false if you want a 2--approx
-independent_good_edges = []
-
-if want_optimal:
-    vertical_edges, horizontal_edges = get_vertical_and_horizontal_edges(
-        G
-    )  # recompute the vertical and horizontal edges
-    vertical_edges_tree = create_interval_tree(
-        vertical_edges, is_vertical_tree=1
-    )  # create the trees for vertical and horizontal edges. Note that for the "simple" decomposition, we only need the vertical tree. We need both for the optimal decomposition.
-    horizontal_edges_tree = create_interval_tree(horizontal_edges, is_vertical_tree=0)
-
-    vertices_with_reflexivity_data = [
-        (
-            (v[0], v[1]),
-            is_left_reflex(v),
-            is_right_reflex(v),
-            is_bottom_reflex(v),
-            is_top_reflex(v),
-        )
-        for v in G.nodes()
-    ]
-
-    good_edges = compute_good_edges(
-        vertices_with_reflexivity_data,
-        vertical_edges,
-        horizontal_edges,
-        vertical_edges_tree,
-        horizontal_edges_tree,
-    )
-
-    if len(good_edges) > 0:
-        independent_good_edges = find_max_IS_of_good_edges(good_edges)
-        for edge in independent_good_edges:
-            add_new_edge_to_half_edge_dictionary(
-                edge
-            )  # this edge is in the interior of the face, so we need to compute the height through the midpoint of the edge
-            G.add_edge(edge[0], edge[1], is_vertical=(edge[0][0] == edge[1][0]))
-        vertical_edges, horizontal_edges = get_vertical_and_horizontal_edges(
-            G
-        )  # recompute the vertical and horizontal edges
-        vertical_edges_tree = create_interval_tree(
-            vertical_edges, is_vertical_tree=1
-        )  # create the trees for vertical and horizontal edges. Note that for the "simple" decomposition, we only need the vertical tree. We need both for the optimal decomposition.
-        horizontal_edges_tree = create_interval_tree(
-            horizontal_edges, is_vertical_tree=0
-        )
-
-    print("\n\nMaximum Independent Set of good edges:", independent_good_edges, "\n")
-
-
 ## Step 2: Perform vertical or horizontal decomposition
-def remove_edge_from_dictionary(edge):
+def remove_edge_from_dictionary(edge, half_edge_height_dict):
     v1 = (edge[0][0], edge[0][1])
     v2 = (edge[1][0], edge[1][1])
 
@@ -395,7 +280,14 @@ def remove_edge_from_dictionary(edge):
 
 
 def add_ray_points_to_graph(
-    edges, ray_shooting_queries, is_ray_horizontal
+    G,
+    edges,
+    ray_shooting_queries,
+    is_ray_horizontal,
+    dcel,
+    vertical_edges_for_dcel,
+    vertical_edges_tree_for_dcel,
+    half_edge_height_dict,
 ):  # given the rays and the vertical edges, we now modify the graph; note that the rays are sorted by the edges they intersect and within that they are sorted by y-coordinate
     i = 0
     while i < len(ray_shooting_queries):  # iterate through the rays
@@ -444,7 +336,13 @@ def add_ray_points_to_graph(
             )
 
             add_new_edge_to_half_edge_dictionary(
-                (ray_shooting_queries[i][0], ray_shooting_queries[i][1]), height, height
+                (ray_shooting_queries[i][0], ray_shooting_queries[i][1]),
+                dcel,
+                vertical_edges_for_dcel,
+                vertical_edges_tree_for_dcel,
+                half_edge_height_dict,
+                height,
+                height,
             )
 
             if not (
@@ -463,24 +361,35 @@ def add_ray_points_to_graph(
                 )
 
                 add_new_edge_to_half_edge_dictionary(
-                    (bisected_edge[0], ray_shooting_queries[i][1]), height1, height2
+                    (bisected_edge[0], ray_shooting_queries[i][1]),
+                    dcel,
+                    vertical_edges_for_dcel,
+                    vertical_edges_tree_for_dcel,
+                    half_edge_height_dict,
+                    height1,
+                    height2,
                 )
                 add_new_edge_to_half_edge_dictionary(
-                    (ray_shooting_queries[i][1], bisected_edge[1]), height1, height2
+                    (ray_shooting_queries[i][1], bisected_edge[1]),
+                    dcel,
+                    vertical_edges_for_dcel,
+                    vertical_edges_tree_for_dcel,
+                    half_edge_height_dict,
+                    height1,
+                    height2,
                 )
 
                 if G.has_edge(bisected_edge[0], bisected_edge[1]):
                     G.remove_edge(bisected_edge[0], bisected_edge[1])
-                    remove_edge_from_dictionary(bisected_edge)
+                    remove_edge_from_dictionary(bisected_edge, half_edge_height_dict)
 
                 else:
-                    print(
-                        "Error: (vertex, intersection point, edge) = ",
-                        ray_shooting_queries[i][0],
-                        ray_shooting_queries[i][1],
-                        edges[ray_shooting_queries[i][2]],
-                        bisected_edge,
-                        "\n\n",
+                    logger.error(
+                        f"Error: (vertex, intersection point, edge) = "
+                        f"{ray_shooting_queries[i][0]}, "
+                        f"{ray_shooting_queries[i][1]}, "
+                        f"{edges[ray_shooting_queries[i][2]]}, "
+                        f"{bisected_edge}"
                     )
 
             bisected_edge = (
@@ -532,23 +441,23 @@ def ray_shooting_from_a_set_of_reflex_vertices(
     return ray_shooting_queries
 
 
-def vertical_or_horizontal_decomposition(G, is_vertical_decomposition):
+def vertical_or_horizontal_decomposition(
+    G,
+    is_vertical_decomposition,
+    box_width,
+    box_length,
+    dcel,
+    vertical_edges_for_dcel,
+    vertical_edges_tree_for_dcel,
+    half_edge_height_dict,
+):
     vertical_edges, horizontal_edges = get_vertical_and_horizontal_edges(
         G
     )  # recompute the vertical and horizontal edges and then the trees (note that the indices of the edges in the tree are now out of order -- indeed some of the edges in the tree are no longer present in the graph)
     vertical_edges_tree = create_interval_tree(vertical_edges, is_vertical_tree=1)
     horizontal_edges_tree = create_interval_tree(horizontal_edges, is_vertical_tree=0)
 
-    vertices_with_reflexivity_data = [
-        (
-            (v[0], v[1]),
-            is_left_reflex(v),
-            is_right_reflex(v),
-            is_bottom_reflex(v),
-            is_top_reflex(v),
-        )
-        for v in G.nodes()
-    ]
+    vertices_with_reflexivity_data = get_reflexivity_data(G)
 
     if is_vertical_decomposition:  # if this is a vertical decomposition, then look at bottom_reflex vertices and shoot down
         first_reflex_set = [
@@ -583,7 +492,14 @@ def vertical_or_horizontal_decomposition(G, is_vertical_decomposition):
         True,
     )  # compute the rays
     add_ray_points_to_graph(
-        edges, ray_shooting_queries, is_ray_horizontal=is_ray_horizontal
+        G,
+        edges,
+        ray_shooting_queries,
+        is_ray_horizontal,
+        dcel,
+        vertical_edges_for_dcel,
+        vertical_edges_tree_for_dcel,
+        half_edge_height_dict,
     )  # add the rays to the graph
 
     vertical_edges, horizontal_edges = get_vertical_and_horizontal_edges(
@@ -592,16 +508,7 @@ def vertical_or_horizontal_decomposition(G, is_vertical_decomposition):
     vertical_edges_tree = create_interval_tree(vertical_edges, is_vertical_tree=1)
     horizontal_edges_tree = create_interval_tree(horizontal_edges, is_vertical_tree=0)
 
-    vertices_with_reflexivity_data = [
-        (
-            (v[0], v[1]),
-            is_left_reflex(v),
-            is_right_reflex(v),
-            is_bottom_reflex(v),
-            is_top_reflex(v),
-        )
-        for v in G.nodes()
-    ]
+    vertices_with_reflexivity_data = get_reflexivity_data(G)
 
     if is_vertical_decomposition:  # if this is a vertical decomposition, then look at top_reflex vertices and shoot up
         second_reflex_set = [
@@ -612,7 +519,7 @@ def vertical_or_horizontal_decomposition(G, is_vertical_decomposition):
         is_ray_horizontal = 0
         is_left = 0
         is_down = 0
-        box_dimensions = box_height
+        box_dimensions = box_length
 
     else:  # if this is a horizontal decomposition, then look at right_reflex vertices and shoot right
         second_reflex_set = [
@@ -636,111 +543,352 @@ def vertical_or_horizontal_decomposition(G, is_vertical_decomposition):
         False,
     )  # compute the rays
     add_ray_points_to_graph(
-        edges, ray_shooting_queries, is_ray_horizontal=is_ray_horizontal
-    )  # add the rays to the graph
+        G,
+        edges,
+        ray_shooting_queries,
+        is_ray_horizontal,
+        dcel,
+        vertical_edges_for_dcel,
+        vertical_edges_tree_for_dcel,
+        half_edge_height_dict,
+    )  # add the rays to the graph  # add the rays to the graph
 
 
-is_vertical_decomposition = (
-    True  # choose if you want to do a vertical or horizontal decomposition
-)
-vertical_or_horizontal_decomposition(G, is_vertical_decomposition)
+def draw_GCS(H, ax):
+    # Calculate positions
+    pos = {}
+    for vertex in H.nodes():
+        if isinstance(vertex, tuple) and len(vertex) == 2:
+            # Edge vertex: use midpoint
+            p1, p2 = vertex
+            pos[vertex] = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+        else:
+            pos[vertex] = (vertex[0], vertex[1])
 
-# Part 3: Plot the PSLG decomposition
-pos = nx.get_node_attributes(G, "pos")  # Extract positions from node attributes
+    # Draw the graph
+    nx.draw_networkx_edges(H, pos, alpha=0.5, edge_color="gray", ax=ax)
 
-fig, ax = plt.subplots()
-draw_graph(
-    left_bottom_reflex,
-    right_bottom_reflex,
-    left_top_reflex,
-    right_top_reflex,
-    G,
-    fig,
-    ax,
-)
+    # Draw different vertex types with different colors
+    edge_vertices = [v for v in H.nodes() if isinstance(v, tuple) and len(v) == 2]
+    source_vertices = [v for v in H.nodes() if H.nodes[v].get("is_source", False)]
+    dest_vertices = [v for v in H.nodes() if H.nodes[v].get("is_destination", False)]
 
-# Part 4: Plot the new DCEL
-dcel_decomposed = orthogonal_dcel.DCEL()
-dcel_decomposed.compute_faces_from_graph(G)
+    if edge_vertices:
+        nx.draw_networkx_nodes(
+            H,
+            pos,
+            nodelist=edge_vertices,
+            node_color="black",
+            node_size=10,
+            alpha=0.7,
+            ax=ax,
+        )
+    if source_vertices:
+        nx.draw_networkx_nodes(
+            H,
+            pos,
+            nodelist=source_vertices,
+            node_color="blue",
+            node_size=10,
+            node_shape="s",
+            ax=ax,
+        )
+    if dest_vertices:
+        nx.draw_networkx_nodes(
+            H,
+            pos,
+            nodelist=dest_vertices,
+            node_color="darkgreen",
+            node_size=10,
+            node_shape="s",
+            ax=ax,
+        )
 
-for face in dcel_decomposed.faces:
-    if face.is_external:
-        face.height = 0
+
+def parse_args(argv=None):
+    # Default parameters (used only for argparse defaults; not mutated)
+
+    # Dimensions of the large bounding box (defaults)
+    box_width = 100
+    box_length = 100
+    box_height = 100
+
+    parser = argparse.ArgumentParser(
+        description="Decompose histogram polyhedra instances into boxes."
+    )
+
+    # Input file information
+    fmt = parser.add_mutually_exclusive_group()
+    fmt.add_argument(
+        "--pkl",
+        dest="pkl_out",
+        action="store_true",
+        help="Read instances as .pkl (default: .json)",
+    )
+    fmt.add_argument(
+        "--json",
+        dest="json_out",
+        action="store_true",
+        help="Read instances as .json (default)",
+    )
+
+    parser.add_argument(
+        "--input-dir", default=None, help="Input directory (default depends on format)"
+    )
+    parser.add_argument(
+        "--input-file", default=None, help="Input file (randomly chosen by default)"
+    )
+
+    # Dimensions
+    parser.add_argument(
+        "--box-width",
+        type=int,
+        default=box_width,
+        help=f"Bounding box width (default: {box_width})",
+    )
+    parser.add_argument(
+        "--box-length",
+        type=int,
+        default=box_length,
+        help=f"Bounding box length (default: {box_length})",
+    )
+    parser.add_argument(
+        "--box-height",
+        type=int,
+        default=box_height,
+        help=f"Bounding box height (default: {box_height})",
+    )
+
+    # Decomposition properties
+    parser.add_argument(
+        "--horizontal",
+        action="store_true",
+        help="Use horizontal decomposition instead of vertical (default: vertical)",
+    )
+    parser.add_argument(
+        "--use-approximation",
+        action="store_true",
+        help="Use 2-approximation instead of optimal decomposition (default: optimal)",
+    )
+
+    # Misc
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed (default: None)"
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
+
+    args = parser.parse_args(argv)
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    setup_logger(args.log_level)
+
+    box_width = args.box_width
+    box_length = args.box_length
+    box_height = args.box_height
+    is_pkl = args.pkl_out
+    want_optimal = not args.use_approximation
+    is_vertical_decomposition = not args.horizontal
+    folder = args.input_dir
+    chosen_file = args.input_file
+
+    if folder is None:
+        if is_pkl:
+            folder = "../Histogram_Polyhedra_Instances_pkl"
+
+        else:
+            folder = "../Histogram_Polyhedra_Instances_json"
+
+    if chosen_file is None:
+        all_files = [f for f in os.listdir(folder)]
+        chosen_file = random.choice(
+            all_files
+        )  # Choose this if you want a random instance
+
+    logger.info(f"Selected file: {chosen_file}")
+
+    # if file does not exit quit error message
+
+    filename = os.path.join(folder, chosen_file)
+
+    if is_pkl:
+        dcel = (orthogonal_dcel.DCEL).load_from_pickle(filename=filename)
+
     else:
-        he = face.start_half_edge
+        dcel = (orthogonal_dcel.DCEL).load_from_json(filename=filename)
+
+    if dcel is FileNotFoundError:
+        logger.error(f"There is no file in the given path")
+        return 1
+
+    # 1) Read input instance
+    half_edge_height_dict = {}  # this holds the heights of the edges for the decomposition
+
+    for he in dcel.half_edges:  # add the half edges of the dcel to the dictionary along with the heights of their corresponding face
         he_coords = (he.origin.coords, he.destination.coords)
-        height = half_edge_height_dict[he_coords]
-        face.height = height
+        half_edge_height_dict[he_coords] = he.face.height
 
-dcel_decomposed.s = dcel.s
-dcel_decomposed.t = dcel.t
+    logger.info("Input DCEL:")
 
-vertical_edges, _ = get_vertical_and_horizontal_edges(
-    G
-)  # recompute the vertical and horizontal edges and then the trees (note that the indices of the edges in the tree are now out of order -- indeed some of the edges in the tree are no longer present in the graph)
-vertical_edges_tree = create_interval_tree(vertical_edges, is_vertical_tree=1)
+    for face in dcel.faces:
+        logger.info(f"{face} height: {face.height}")
 
-# Part 5: Get the GCS graph and plot it on top of the new DCEL
+    G = nx.Graph()
+    G = dcel.convert_to_graph()
 
-H = dcel_decomposed.get_graph_for_GCS(
-    edges=vertical_edges, tree=vertical_edges_tree
-)  # get the GCS graph
-
-# Calculate positions
-pos = {}
-for vertex in H.nodes():
-    if isinstance(vertex, tuple) and len(vertex) == 2:
-        # Edge vertex: use midpoint
-        p1, p2 = vertex
-        pos[vertex] = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
-    else:
-        pos[vertex] = (vertex[0], vertex[1])
-
-# Draw the graph
-nx.draw_networkx_edges(H, pos, alpha=0.5, edge_color="gray", ax=ax)
-
-# Draw different vertex types with different colors
-edge_vertices = [v for v in H.nodes() if isinstance(v, tuple) and len(v) == 2]
-source_vertices = [v for v in H.nodes() if H.nodes[v].get("is_source", False)]
-dest_vertices = [v for v in H.nodes() if H.nodes[v].get("is_destination", False)]
-
-if edge_vertices:
-    nx.draw_networkx_nodes(
-        H,
-        pos,
-        nodelist=edge_vertices,
-        node_color="black",
-        node_size=10,
-        alpha=0.7,
-        ax=ax,
-    )
-if source_vertices:
-    nx.draw_networkx_nodes(
-        H,
-        pos,
-        nodelist=source_vertices,
-        node_color="blue",
-        node_size=10,
-        node_shape="s",
-        ax=ax,
-    )
-if dest_vertices:
-    nx.draw_networkx_nodes(
-        H,
-        pos,
-        nodelist=dest_vertices,
-        node_color="darkgreen",
-        node_size=10,
-        node_shape="s",
-        ax=ax,
+    # 2) Plot the input PSLG and 3D instance
+    vertical_edges_for_dcel, horizontal_edges_for_dcel = (
+        get_vertical_and_horizontal_edges(G)
+    )  # compute the vertical and horizontal edges
+    vertical_edges_tree_for_dcel = create_interval_tree(
+        vertical_edges_for_dcel, is_vertical_tree=1
+    )  # create the trees for vertical and horizontal edges. Note that for the "simple" decomposition, we only need the vertical tree. We need both for the optimal decomposition.
+    horizontal_edges_tree_for_dcel = create_interval_tree(
+        horizontal_edges_for_dcel, is_vertical_tree=0
     )
 
-print("Source:", dcel.s, "\nDestination:", dcel.t)
-# print("\n\nFinal DCEL")
+    dcel.plot_histogram_polyhedron()  # plot the  3D instance
 
-# for face in dcel_decomposed.faces:
-#     print(face, "height: ", face.height)
+    vertices_with_reflexivity_data = get_reflexivity_data(
+        G
+    )  # collect the vertices along with reflexivity data for plotting in different colors
+    left_bottom_reflex = [
+        v[0] for v in vertices_with_reflexivity_data if (v[1] and v[3])
+    ]
+    right_bottom_reflex = [
+        v[0] for v in vertices_with_reflexivity_data if (v[2] and v[3])
+    ]
+    left_top_reflex = [v[0] for v in vertices_with_reflexivity_data if (v[1] and v[4])]
+    right_top_reflex = [v[0] for v in vertices_with_reflexivity_data if (v[2] and v[4])]
 
-dcel_decomposed.plot_histogram_polyhedron()
+    fig, ax = plt.subplots()  # Plot the input PSLG
+    draw_graph(
+        left_bottom_reflex,
+        right_bottom_reflex,
+        left_top_reflex,
+        right_top_reflex,
+        G,
+        ax,
+    )
 
-plt.show()
+    # 3) Find an independent set of good edges if optimal solutions are required
+
+    independent_good_edges = []
+
+    if want_optimal:
+        vertical_edges, horizontal_edges = get_vertical_and_horizontal_edges(
+            G
+        )  # recompute the vertical and horizontal edges
+        vertical_edges_tree = create_interval_tree(
+            vertical_edges, is_vertical_tree=1
+        )  # create the trees for vertical and horizontal edges. Note that for the "simple" decomposition, we only need the vertical tree. We need both for the optimal decomposition.
+        horizontal_edges_tree = create_interval_tree(
+            horizontal_edges, is_vertical_tree=0
+        )
+
+        vertices_with_reflexivity_data = get_reflexivity_data(G)
+
+        good_edges = compute_good_edges(
+            vertices_with_reflexivity_data,
+            vertical_edges,
+            horizontal_edges,
+            vertical_edges_tree,
+            horizontal_edges_tree,
+            box_width,
+            box_length,
+        )
+
+        if len(good_edges) > 0:
+            independent_good_edges = find_max_IS_of_good_edges(good_edges)
+            for edge in independent_good_edges:
+                add_new_edge_to_half_edge_dictionary(
+                    edge,
+                    dcel,
+                    vertical_edges_for_dcel,
+                    vertical_edges_tree_for_dcel,
+                    half_edge_height_dict,
+                )  # this edge is in the interior of the face, so we need to compute the height through the midpoint of the edge
+                G.add_edge(edge[0], edge[1], is_vertical=(edge[0][0] == edge[1][0]))
+            vertical_edges, horizontal_edges = get_vertical_and_horizontal_edges(
+                G
+            )  # recompute the vertical and horizontal edges
+            vertical_edges_tree = create_interval_tree(
+                vertical_edges, is_vertical_tree=1
+            )  # create the trees for vertical and horizontal edges. Note that for the "simple" decomposition, we only need the vertical tree. We need both for the optimal decomposition.
+            horizontal_edges_tree = create_interval_tree(
+                horizontal_edges, is_vertical_tree=0
+            )
+
+        logger.info(f"Maximum Independent Set of good edges: {independent_good_edges}")
+
+    # 4) Decompose the PSLG vertically or horizontally
+    vertical_or_horizontal_decomposition(
+        G,
+        is_vertical_decomposition,
+        box_width,
+        box_length,
+        dcel,
+        vertical_edges_for_dcel,
+        vertical_edges_tree_for_dcel,
+        half_edge_height_dict,
+    )
+
+    fig, ax = plt.subplots()
+    draw_graph(
+        left_bottom_reflex,
+        right_bottom_reflex,
+        left_top_reflex,
+        right_top_reflex,
+        G,
+        ax,
+    )
+
+    # 5) Plot the new DCEL
+    dcel_decomposed = orthogonal_dcel.DCEL()
+    dcel_decomposed.compute_faces_from_graph(G)
+
+    for face in dcel_decomposed.faces:
+        if face.is_external:
+            face.height = 0
+        else:
+            he = face.start_half_edge
+            he_coords = (he.origin.coords, he.destination.coords)
+            height = half_edge_height_dict[he_coords]
+            face.height = height
+
+    dcel_decomposed.s = dcel.s
+    dcel_decomposed.t = dcel.t
+
+    logger.info(f"Source: {dcel.s}")
+    logger.info(f"Destination: {dcel.t}")
+    # logger.info("\n\nFinal DCEL")
+
+    # for face in dcel_decomposed.faces:
+    #     logger.info(f"{face} height: {face.height}")
+
+    dcel_decomposed.plot_histogram_polyhedron()
+
+    vertical_edges, _ = get_vertical_and_horizontal_edges(
+        G
+    )  # recompute the vertical and horizontal edges and then the trees (note that the indices of the edges in the tree are now out of order -- indeed some of the edges in the tree are no longer present in the graph)
+    vertical_edges_tree = create_interval_tree(vertical_edges, is_vertical_tree=1)
+
+    # Part 5: Get the GCS graph and plot it on top of the new DCEL
+
+    H = dcel_decomposed.get_graph_for_GCS(
+        edges=vertical_edges, tree=vertical_edges_tree
+    )  # get the GCS graph
+
+    draw_GCS(H, ax)
+
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
