@@ -14,6 +14,7 @@ from enum import Enum
 import logging
 from format_logger import setup_logger
 import argparse
+from GCS_solver import convert_to_pydrake_gcs_format, find_shortest_path, draw_GCS_with_flows
 
 # Setup logging
 setup_logger(level="INFO")
@@ -588,7 +589,7 @@ def draw_GCS(H, ax):
             H,
             pos,
             nodelist=source_vertices,
-            node_color="blue",
+            node_color="darkgreen",
             node_size=10,
             node_shape="s",
             ax=ax,
@@ -598,7 +599,7 @@ def draw_GCS(H, ax):
             H,
             pos,
             nodelist=dest_vertices,
-            node_color="darkgreen",
+            node_color="red",
             node_size=10,
             node_shape="s",
             ax=ax,
@@ -872,8 +873,6 @@ def main(argv=None):
     # for face in dcel_decomposed.faces:
     #     logger.info(f"{face} height: {face.height}")
 
-    dcel_decomposed.plot_histogram_polyhedron()
-
     vertical_edges, _ = get_vertical_and_horizontal_edges(
         G
     )  # recompute the vertical and horizontal edges and then the trees (note that the indices of the edges in the tree are now out of order -- indeed some of the edges in the tree are no longer present in the graph)
@@ -886,6 +885,19 @@ def main(argv=None):
     )  # get the GCS graph
 
     draw_GCS(H, ax)
+
+    gcs, vertex_map = convert_to_pydrake_gcs_format(H)
+
+    result, path_points, flows = find_shortest_path(gcs, vertex_map, source_node = tuple(dcel.s), target_node= tuple(dcel.t))
+    
+    draw_GCS_with_flows(gcs, source=tuple(dcel.s), target=tuple(dcel.t), flows = flows)
+    
+    if result:
+        logger.info(f"Optimal cost: {result.get_optimal_cost()}")
+        logger.info(f"Points in shortest path: {path_points}")
+        dcel_decomposed.plot_histogram_polyhedron(path=path_points)
+    else:
+        logger.error("MILP error.")
 
     plt.show()
 

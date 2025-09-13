@@ -14,7 +14,6 @@ from orthogonal_ray_shooting import ray_shooting
 import json
 from itertools import combinations
 
-
 class Vertex:  # the Vertex class contains 3 attributes: .x, .y, .incident_half_edges
     def __init__(self, x, y):
         self.x = x
@@ -688,31 +687,35 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
                 for he in (
                     face_edges
                 ):  # add an edge between the point and every edge bounding the face
-                    edge_vertex = he_to_edge(he)
-                    H.add_edge(point_vertex, edge_vertex)
+                    if not(he.face.is_external or he.twin.face.is_external):
+                        edge_vertex = he_to_edge(he)
+                        H.add_edge(point_vertex, edge_vertex)
             return face
 
         while unprocessed:  # Vertices of H are the edges of the graph (not half edges)
             he = unprocessed.pop()  # remove the half edge and its twin
             unprocessed.discard(he.twin)
 
-            min_height = min(
-                he.face.height, he.twin.face.height
-            )  # the intersection between the two faces will be the rectangle whose height is the minimum of the heights of the faces that are in either side of this edge
-            diagonals = (he.origin.coords + (0,), he.destination.coords + (min_height,))
+            if not (he.face.is_external or he.twin.face.is_external):
+                min_height = min(
+                    he.face.height, he.twin.face.height
+                )  # the intersection between the two faces will be the rectangle whose height is the minimum of the heights of the faces that are in either side of this edge
 
-            edge_vertex = he_to_edge(he)  # Use ordered edge as vertex name
-            H.add_node(
-                edge_vertex, diagonals=diagonals
-            )  # the "diagonals" field will hold the diagonal vertices
+                edge_vertex = he_to_edge(he)  # Use ordered edge as vertex name
+                diagonals = (edge_vertex[0] + (0,), edge_vertex[1] + (min_height,))
+                
+                H.add_node(
+                    edge_vertex, diagonals=diagonals
+                )  # the "diagonals" field will hold the diagonal vertices
 
         for face in self.faces:  # Add edges based on faces -- a face induces a clique; we only use the outer faces since the final decomposition has no inner components
             face_half_edges = list(face.outer_edges())
 
             for he1, he2 in combinations(face_half_edges, 2):
-                edge1 = he_to_edge(he1)
-                edge2 = he_to_edge(he2)
-                H.add_edge(edge1, edge2)
+                if not (he1.face.is_external or he1.twin.face.is_external or he2.face.is_external or he2.twin.face.is_external):
+                    edge1 = he_to_edge(he1)
+                    edge2 = he_to_edge(he2)
+                    H.add_edge(edge1, edge2)
 
         H.add_node(tuple(self.s), is_source=True)
         H.add_node(tuple(self.t), is_destination=True)
@@ -804,7 +807,7 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
             return FileNotFoundError
 
     def plot_histogram_polyhedron(
-        self, alpha=0.15, show_wireframe=True, face_colors=None
+        self, alpha=0.15, show_wireframe=True, face_colors=None, path = None
     ):
         """
         Plot the 3D histogram polyhedron from DCEL with face heights
@@ -860,15 +863,20 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
             )
             ax.add_collection3d(poly_collection)
 
-        ax.scatter(self.s[0], self.s[1], self.s[2], color="blue", s=20, marker="s")
-        ax.scatter(self.t[0], self.t[1], self.t[2], color="darkgreen", s=20, marker="s")
+        ax.scatter(self.s[0], self.s[1], self.s[2], color="darkgreen", s=20, marker="s")
+        ax.scatter(self.t[0], self.t[1], self.t[2], color="red", s=20, marker="s")
+
+        if path is not None:
+            x, y, z = zip(*path)
+            
+            plt.plot(x, y, z)   # marker="o" shows the points
 
         self._set_axis_properties_3d(ax)  # Set axis properties
 
         # Add labels and title
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
-        ax.set_zlabel("Height")
+        ax.set_zlabel("Z")
         ax.set_title("3D Histogram Polyhedron from DCEL")
         ax.view_init(elev=30, azim=-60)
 
@@ -884,6 +892,5 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
                 plt.colorbar(sm, ax=ax, label="Face Height", shrink=0.5)
 
         plt.tight_layout()
-        # plt.show()
 
         return fig, ax
