@@ -655,6 +655,30 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
 
         return G
 
+    def get_boxes(self):  # Get diagonals of boxes representing faces with heights; note that this only makes sense when DCEL has been decomposed
+        boxes = []
+        for face in self.faces:
+            if face.is_external or not hasattr(face, "height"):
+                continue  # Skip external face or faces without height
+
+            face_vertices = list(face.outer_vertices())
+            if len(face_vertices) < 3:
+                continue  # Skip degenerate faces
+
+            x_coords = [v.x for v in face_vertices]
+            y_coords = [v.y for v in face_vertices]
+            min_x, max_x = min(x_coords), max(x_coords)
+            min_y, max_y = min(y_coords), max(y_coords)
+            height = face.height
+
+            box = {
+                "diagonal": ([min_x, min_y, 0], [max_x, max_y, height]),
+                "face": face,
+            }
+            boxes.append(box)
+
+        return boxes
+
     def get_graph_for_GCS(
         self, edges, tree
     ):  # given the decomposed DCEL, This returns the GCS graph
@@ -870,6 +894,8 @@ class DCEL:  # The DCEL class has .vertices, .half_edges, and .faces as its attr
             x, y, z = zip(*path)
             
             plt.plot(x, y, z)   # marker="o" shows the points
+            # for p in path:
+            #     ax.scatter(p[0], p[1], p[2], color="blue", s=10, marker="o")
 
         self._set_axis_properties_3d(ax)  # Set axis properties
 

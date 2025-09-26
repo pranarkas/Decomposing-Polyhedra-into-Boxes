@@ -15,6 +15,8 @@ import logging
 from format_logger import setup_logger
 import argparse
 from GCS_solver import convert_to_pydrake_gcs_format, find_shortest_path, draw_GCS_with_flows
+import numpy as np
+from fast_path_planning import convert_to_fpp_format, plan_with_fpp
 
 # Setup logging
 setup_logger(level="INFO")
@@ -660,6 +662,13 @@ def parse_args(argv=None):
         help=f"Bounding box height (default: {box_height})",
     )
 
+    # Algorithm Choices
+    parser.add_argument(
+        "--exact",
+        help="Use exact GCS solver (default: heuristic)",
+        action="store_true",
+    )
+
     # Decomposition properties
     parser.add_argument(
         "--horizontal",
@@ -698,6 +707,7 @@ def main(argv=None):
     is_vertical_decomposition = not args.horizontal
     folder = args.input_dir
     chosen_file = args.input_file
+    is_exact = args.exact
 
     if folder is None:
         if is_pkl:
@@ -777,7 +787,7 @@ def main(argv=None):
         G,
         ax,
     )
-
+    
     # 3) Find an independent set of good edges if optimal solutions are required
 
     independent_good_edges = []
@@ -873,28 +883,44 @@ def main(argv=None):
     # for face in dcel_decomposed.faces:
     #     logger.info(f"{face} height: {face.height}")
 
-    vertical_edges, _ = get_vertical_and_horizontal_edges(
+    path_points = None
+    result = None
+
+    if is_exact:
+        logger.info("Using exact GCS solver.")
+        vertical_edges, _ = get_vertical_and_horizontal_edges(
         G
-    )  # recompute the vertical and horizontal edges and then the trees (note that the indices of the edges in the tree are now out of order -- indeed some of the edges in the tree are no longer present in the graph)
-    vertical_edges_tree = create_interval_tree(vertical_edges, is_vertical_tree=1)
+        )  # recompute the vertical and horizontal edges and then the trees (note that the indices of the edges in the tree are now out of order -- indeed some of the edges in the tree are no longer present in the graph)
+        vertical_edges_tree = create_interval_tree(vertical_edges, is_vertical_tree=1)
 
-    # Part 5: Get the GCS graph and plot it on top of the new DCEL
+        # Part 5: Get the GCS graph and plot it on top of the new DCEL
 
-    H = dcel_decomposed.get_graph_for_GCS(
-        edges=vertical_edges, tree=vertical_edges_tree
-    )  # get the GCS graph
+        H = dcel_decomposed.get_graph_for_GCS(
+            edges=vertical_edges, tree=vertical_edges_tree
+        )  # get the GCS graph
 
-    draw_GCS(H, ax)
-
-    gcs, vertex_map = convert_to_pydrake_gcs_format(H)
-
-    result, path_points, flows = find_shortest_path(gcs, vertex_map, source_node = tuple(dcel.s), target_node= tuple(dcel.t))
+        draw_GCS(H, ax)
+        gcs, vertex_map = convert_to_pydrake_gcs_format(H)
+        result, path_points, flows = find_shortest_path(gcs, vertex_map, source_node = tuple(dcel.s), target_node= tuple(dcel.t))
+        draw_GCS_with_flows(gcs, source=tuple(dcel.s), target=tuple(dcel.t), flows = flows)
+    else:
+        #Note: this messes up sometimes; for example in 129_008, 071_002. Their code seems to set one of the variables to None and then it fails
+        logger.info("Using heuristic GCS solver.")
+        B = dcel_decomposed.get_boxes()
+        S = convert_to_fpp_format(B)
+        path_points = plan_with_fpp(
+            S, dcel_decomposed.s, dcel_decomposed.t, 100
+        )
+        result = True  # to indicate that there is no MILP error
     
-    draw_GCS_with_flows(gcs, source=tuple(dcel.s), target=tuple(dcel.t), flows = flows)
-    
+    source = np.array(dcel.s)
+    target = np.array(dcel.t)
+    distance_between_source_and_target = np.sqrt((source - target).dot(source - target))
     if result:
-        logger.info(f"Optimal cost: {result.get_optimal_cost()}")
-        logger.info(f"Points in shortest path: {path_points}")
+        #logger.info(f"Optimal cost: {result.get_optimal_cost()}")
+        logger.info(f"Distance between s and t: {distance_between_source_and_target}")
+        # if path_points:
+        #     logger.info(f"Points in shortest path: {path_points}")
         dcel_decomposed.plot_histogram_polyhedron(path=path_points)
     else:
         logger.error("MILP error.")

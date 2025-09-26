@@ -42,11 +42,13 @@ def convert_to_pydrake_gcs_format(H: nx.Graph):
         diagonal = attrs.get('diagonals', None)
         if diagonal is None: #if it has no diagonal, then it is a point
             convex_set = Point(np.array(node))
+            #logger.info(f"Node {node} is a point.")
         else: # it is a box defined by its diagonal
             min_point = np.array(diagonal[0])
             max_point = np.array(diagonal[1])  
-
+            #logger.info(f"Node {node} has diagonals with min_point: {min_point} and max_point: {max_point}")
             convex_set = HPolyhedron.MakeBox(lb = min_point, ub = max_point)
+
         
         node = convert_node_to_string(node) # Convert node to string for consistent naming
         vertex = gcs.AddVertex(convex_set, name=node) # Add vertex to GCS
@@ -158,7 +160,7 @@ def find_shortest_path(gcs: GraphOfConvexSets, vertex_map, source_node, target_n
     source_node = convert_node_to_string(source_node)
     target_node = convert_node_to_string(target_node)
 
-    logger.info(f"Finding shortest path from {source_node} to {target_node}")
+    logger.info(f"Finding shortest path from {source_node} to {target_node}...")
     result = gcs.SolveShortestPath(
         source=vertex_map[source_node], 
         target=vertex_map[target_node],
@@ -174,7 +176,7 @@ def find_shortest_path(gcs: GraphOfConvexSets, vertex_map, source_node, target_n
         flows[(e.u().name(), e.v().name())] = flow_val
 
     path = None
-
+    path_points = None
     if result.is_success():
         path = gcs.GetSolutionPath(source=vertex_map[source_node], 
             target=vertex_map[target_node],result=result)

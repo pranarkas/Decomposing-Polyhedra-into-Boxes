@@ -211,13 +211,19 @@ def generate_random_point_in_dcel(dcel: orthogonal_dcel.DCEL, edges, tree, args)
     interval tree and ray shooting, then samples z uniformly from [0, height]
     of that face. Returns a list [x, y, z].
     """
-    x = random.randint(0, args.box_width)
-    y = random.randint(0, args.box_length)
-    point = (x, y)
-    face = dcel.face_with_point(point, edges=edges, tree=tree, is_ray_horizontal=True)
-    height = face.height
-    z = random.randint(0, height)
-    point = [x, y, z]
+    flag = True
+    while flag:
+        x = random.randint(0, args.box_width)
+        y = random.randint(0, args.box_length)
+        z = random.randint(0, args.box_height)
+        projected_point = (x, y)
+        point = [x, y, z]
+        face = dcel.face_with_point(projected_point, edges=edges, tree=tree, is_ray_horizontal=True)
+        if z <= face.height:
+            flag = False
+            logger.info("Accepted point %s in face with height %d", point, face.height)
+        else:
+            logger.warning("Rejected point %s in face with height %d", point, face.height)
     return point
 
 
